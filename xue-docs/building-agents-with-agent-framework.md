@@ -574,7 +574,7 @@ new HostedMcpServerTool(
 
 **Underlying transport**: The MCP SDK uses **HTTP with Server-Sent Events (SSE)** for streamable transport. The `ClientSession` maintains a persistent HTTP connection. Auth headers are included in every HTTP request made by the MCP client. For local MCP servers (e.g., running a subprocess), **stdio** transport is used — no auth needed since it's a local process.
 
-> **Hypothesis**: For hosted MCP servers with OAuth flows (e.g., needing user consent), the framework likely supports an interceptor or callback pattern where the MCP session can trigger an OAuth redirect flow. The `.NET` `HostedMcpServerTool` with `ApprovalMode` settings suggests a model where tool calls requiring elevated permissions can be paused pending user authorization. The exact OAuth integration pattern is not fully documented in the codebase, but the architecture supports it through the approval flow mechanism.
+> **⚠️ Speculation**: The codebase does not explicitly implement an OAuth redirect flow for MCP servers. However, the architecture *could* support it: the `.NET` `HostedMcpServerTool` has `ApprovalMode` settings that pause tool execution pending user authorization, and the Python approval flow returns `function_approval_request` objects. An OAuth consent flow could be built on top of this approval mechanism, but this is **not a confirmed feature** — it would require custom implementation.
 
 ---
 
@@ -722,7 +722,7 @@ var mem0Provider = new Mem0Provider(
 
 2. **`after_run()`**: Collects input + response messages, filters to user/assistant/system roles, calls `mem0_client.add(messages=[...], user_id=..., agent_id=...)`.
 
-3. **Mem0's internal processing** (hypothesis based on Mem0 documentation): Mem0 uses an **embedding model** (e.g., OpenAI `text-embedding-3-small`) to convert messages into vector embeddings. These are stored in a **vector database** (Qdrant, Pinecone, or Mem0's hosted service). Retrieval uses **cosine similarity** between the query embedding and stored memory embeddings. Mem0 also performs **automatic deduplication and conflict resolution** — if a user says "I like Python" then later "I actually prefer Go", Mem0 updates the memory rather than storing both.
+3. **Mem0's internal processing** (based on [Mem0's public documentation](https://docs.mem0.ai/)): Mem0 uses an embedding model (e.g., OpenAI `text-embedding-3-small`) to convert messages into vector embeddings. These are stored in a vector database (Qdrant, Pinecone, or Mem0's hosted service). Retrieval uses cosine similarity between the query embedding and stored memory embeddings. Mem0 also performs automatic deduplication and conflict resolution — if a user says "I like Python" then later "I actually prefer Go", Mem0 updates the memory rather than storing both.
 
 4. **Indexing delay**: Memories are indexed asynchronously — there's an empirical ~12-second delay before newly stored memories become searchable.
 
@@ -810,11 +810,11 @@ Two retrieval modes are supported:
    - **Extractive captions**: Highlights the most relevant passages
    - The provider auto-discovers vector fields from the index schema and uses server-side vectorization if configured
 
-2. **Agentic Mode** (deeper reasoning, slower):
+2. **Agentic Mode** (deeper reasoning, slower) — **inferred from source code** in [`_agentic_retrieval_search.py`](../python/packages/azure-ai-search/):
    - Uses Azure AI Search's `KnowledgeBaseRetrievalClient` for multi-hop reasoning
-   - The LLM plans retrieval queries, evaluates results, and iterates
+   - The client creates a Knowledge Base over the search index, then sends the user query for AI-planned retrieval
    - Configurable `retrieval_reasoning_effort`: `"minimal"`, `"low"`, `"medium"`
-   - This is hypothesis-based on the codebase's `_agentic_retrieval_search.py`: the client creates a Knowledge Base over the search index, then sends the user query for AI-planned retrieval
+   - **Note**: The exact internal behavior of Azure AI Search's agentic retrieval is a managed service feature. The framework integration code shows the API surface, but the multi-hop reasoning itself is handled server-side by Azure.
 
 ### 4.6 Cloud-Native Memory (Cosmos DB, Foundry Memory)
 
@@ -838,7 +838,7 @@ var foundryMemory = new FoundryMemoryProvider(
 // Default: max 5 memories retrieved per query
 ```
 
-> **Hypothesis on Foundry Memory internals**: Azure AI Foundry Memory likely uses a managed vector store under the hood. When `StoreAIContextAsync()` is called, it sends messages to the Foundry service which: (1) extracts key facts, (2) generates embeddings, (3) stores in a managed vector database. Retrieval uses semantic search with configurable max results. The async update pattern with polling suggests a queue-based architecture where memory updates are processed asynchronously.
+> **⚠️ Speculation on Foundry Memory internals**: The framework's [`FoundryMemoryProvider`](../dotnet/src/Microsoft.Agents.AI.FoundryMemory/) source code shows the API integration — `StoreAIContextAsync()`, `ProvideAIContextAsync()`, and async update polling. The actual memory processing (fact extraction, embedding, storage) is handled **server-side by the Azure AI Foundry service**. Based on the async update pattern with polling (`WhenUpdatesCompletedAsync()`), the service likely uses a queue-based architecture where memory updates are processed asynchronously. The exact internal implementation is not visible from the client SDK alone.
 
 ### 4.7 Holistic Multi-Memory Agent Example
 
